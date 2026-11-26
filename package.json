@@ -1,0 +1,52 @@
+{
+  "name": "opencode-capability-profiles",
+  "version": "0.1.0",
+  "description": "Shared advisory capability-depth mappings for OpenCode tools",
+  "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "Nikita Mosiyash",
+    "email": "nikita.mosiyash@gmail.com"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mosiyash/opencode-capability-profiles.git"
+  },
+  "homepage": "https://github.com/mosiyash/opencode-capability-profiles#readme",
+  "bugs": {
+    "url": "https://github.com/mosiyash/opencode-capability-profiles/issues"
+  },
+  "keywords": [
+    "opencode",
+    "capability-profiles",
+    "developer-tools"
+  ],
+  "bin": {
+    "opencode-capability-profiles": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && tsx --test test/*.test.ts",
+    "prepublishOnly": "npm run check && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}
