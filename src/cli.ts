@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import process from "node:process";
+import path from "node:path";
+import { createRequire } from "node:module";
 import { createInterface } from "node:readline/promises";
 import {
   CAPABILITY_DEPTHS,
@@ -15,6 +17,7 @@ import {
 } from "./index.js";
 import type { CapabilityMappings } from "./types.js";
 
+const packageVersion = (createRequire(import.meta.url)("../package.json") as { version: string }).version;
 const args = process.argv.slice(2);
 const command = args[0] ?? "help";
 const projectScope = args.includes("--project");
@@ -26,7 +29,32 @@ function usage(): void {
   opencode-capability-profiles setup --global|--project
   opencode-capability-profiles show [--project]
   opencode-capability-profiles reset --global|--project
-  opencode-capability-profiles migrate [--project]`);
+  opencode-capability-profiles migrate [--project]
+  opencode-capability-profiles doctor [--project]`);
+}
+
+function doctor(): void {
+  const includesProject = args.length === 2 && args[1] === "--project";
+  if (!((args.length === 1 || includesProject) && args[0] === "doctor")) {
+    throw new Error("Usage: opencode-capability-profiles doctor [--project]");
+  }
+
+  const project = includesProject ? path.resolve(process.cwd()) : null;
+  const profiles = readProfiles(project ? { projectRoot: project } : {});
+  const hasWarnings = profiles.warnings.length > 0
+    || profiles.global.warnings.length > 0
+    || (profiles.project?.warnings.length ?? 0) > 0;
+  const status = hasWarnings ? "warning" : "ok";
+  console.log(JSON.stringify({
+    schema: 1,
+    component: "opencode-capability-profiles",
+    package_version: packageVersion,
+    status,
+    project,
+    profiles,
+    complete: true,
+  }));
+  if (status === "warning") process.exitCode = 1;
 }
 
 async function promptMappings(current: CapabilityMappings): Promise<{ set: CapabilityMappings; remove: (keyof CapabilityMappings)[] }> {
@@ -105,6 +133,7 @@ try {
   else if (command === "show") console.log(JSON.stringify(readProfiles(projectScope ? { projectRoot } : {}), null, 2));
   else if (command === "reset") await reset();
   else if (command === "migrate") await migrate();
+  else if (command === "doctor") doctor();
   else if (command === "help" || command === "--help" || command === "-h") usage();
   else throw new Error(`Unknown command: ${command}`);
 } catch (error) {

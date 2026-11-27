@@ -91,12 +91,35 @@ implement competing writers:
 opencode-capability-profiles setup --global
 opencode-capability-profiles setup --project
 opencode-capability-profiles show --project
+opencode-capability-profiles doctor --project
 opencode-capability-profiles reset --global
 opencode-capability-profiles reset --project
 ```
 
 `--project` uses the current working directory as the project root. Setup accepts
 partial mappings. An empty response preserves a value and `-` removes it.
+
+### Doctor
+
+`opencode-capability-profiles doctor [--project]` prints exactly one schema-1
+JSON health document to stdout. Its exact root fields are `schema: 1`,
+`component: "opencode-capability-profiles"`, `package_version`, `status`,
+`project`, `profiles`, and `complete: true`. `project` is the canonical current
+working directory with `--project`, otherwise `null`.
+
+`status` is `"ok"` or `"warning"`: missing configuration is healthy and exits
+`0`; warnings from an invalid or unsafe configuration produce `"warning"` and
+exit `1`. Invalid invocation writes a concise error to stderr, exits nonzero,
+and does not produce a health document.
+
+`profiles` is exactly the existing `show`/`readProfiles` shape: `global`, an
+optional `project`, `effective`, and aggregate `warnings`. Each configuration
+result includes its `path`, `exists`, `mappings`, and `warnings`. Mapping labels
+and paths appear in this output, so do not put secrets in them or publish doctor
+output broadly without intent.
+
+Doctor is read-only: it does not create, modify, remove, or remediate
+configuration files.
 
 ## Legacy migration
 

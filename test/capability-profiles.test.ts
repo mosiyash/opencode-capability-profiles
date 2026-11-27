@@ -29,6 +29,22 @@ import {
 const makeRoot = (): string => fs.mkdtempSync(path.join(os.tmpdir(), "capability-profiles-"));
 const removeRoot = (root: string): void => fs.rmSync(root, { recursive: true, force: true });
 
+function runCli(root: string, projectRoot: string, args: string[]): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.resolve("dist/cli.js"), ...args], {
+      cwd: projectRoot,
+      env: { ...process.env, HOME: path.join(root, "home"), XDG_CONFIG_HOME: path.join(root, "xdg-config") },
+      stdio: "pipe",
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
+    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
+    child.on("error", reject);
+    child.on("exit", (code) => resolve({ code, stdout, stderr }));
+  });
+}
+
 test("global mappings resolve without a project config", () => {
   const root = makeRoot();
   try {
@@ -211,5 +227,67 @@ test("scope-based configure and reset entry points require project context", () 
     assert.equal(resetProfiles({ scope: "project", projectRoot }), true);
     assert.throws(() => configureProfiles({ scope: "project", mappings: {} }), (error) => error instanceof CapabilityProfilesError && error.code === "INVALID_ARGUMENT");
     assert.throws(() => resetProfiles({ scope: "project" }), (error) => error instanceof CapabilityProfilesError && error.code === "INVALID_ARGUMENT");
+  } finally { removeRoot(root); }
+});
+
+test("doctor reports isolated configurations as one read-only health document", async () => {
+  const root = makeRoot();
+  try {
+    const homeDir = path.join(root, "home");
+    const projectRoot = path.join(root, "project");
+    fs.mkdirSync(projectRoot);
+
+    const missing = await runCli(root, projectRoot, ["doctor"]);
+    const missingDocument = JSON.parse(missing.stdout) as Record<string, unknown>;
+    const packageVersion = JSON.parse(fs.readFileSync(path.resolve("package.json"), "utf8")).version;
+    assert.equal(missing.code, 0);
+    assert.equal(missing.stderr, "");
+    assert.deepEqual(Object.keys(missingDocument), ["schema", "component", "package_version", "status", "project", "profiles", "complete"]);
+    assert.equal(missingDocument.schema, 1);
+    assert.equal(missingDocument.component, "opencode-capability-profiles");
+    assert.equal(missingDocument.package_version, packageVersion);
+    assert.equal(missingDocument.status, "ok");
+    assert.equal(missingDocument.project, null);
+    assert.equal(missingDocument.complete, true);
+
+    writeConfigFile(globalConfigPath(homeDir), { light: "Luna", deep: "Global Sol" });
+    writeConfigFile(projectConfigPath(projectRoot), { deep: "Project Sol" });
+    const configured = await runCli(root, projectRoot, ["doctor", "--project"]);
+    const configuredDocument = JSON.parse(configured.stdout) as { status: string; project: string; profiles: ReturnType<typeof readProfiles> };
+    assert.equal(configured.code, 0);
+    assert.equal(configured.stderr, "");
+    assert.equal(configuredDocument.status, "ok");
+    assert.equal(configuredDocument.project, path.resolve(projectRoot));
+    assert.deepEqual(configuredDocument.profiles.effective, { light: "Luna", deep: "Project Sol" });
+  } finally { removeRoot(root); }
+});
+
+test("doctor reports unsafe configs as warnings and rejects non-contract arguments", async () => {
+  const root = makeRoot();
+  try {
+    const homeDir = path.join(root, "home");
+    const projectRoot = path.join(root, "project");
+    fs.mkdirSync(projectRoot);
+    const globalPath = globalConfigPath(homeDir);
+    fs.mkdirSync(path.dirname(globalPath), { recursive: true });
+    const target = path.join(root, "target.json");
+    fs.writeFileSync(target, JSON.stringify({ schema: 1, mappings: { light: "Luna" } }));
+    fs.symlinkSync(target, globalPath);
+    const projectPath = projectConfigPath(projectRoot);
+    fs.mkdirSync(path.dirname(projectPath), { recursive: true });
+    fs.writeFileSync(projectPath, "{ malformed");
+
+    const warning = await runCli(root, projectRoot, ["doctor", "--project"]);
+    const warningDocument = JSON.parse(warning.stdout) as { status: string; profiles: ReturnType<typeof readProfiles> };
+    assert.equal(warning.code, 1);
+    assert.equal(warning.stderr, "");
+    assert.equal(warningDocument.status, "warning");
+    assert.equal(warningDocument.profiles.global.warnings[0]?.code, "UNSAFE_PATH");
+    assert.equal(warningDocument.profiles.project?.warnings[0]?.code, "INVALID_CONFIG");
+
+    const invalid = await runCli(root, projectRoot, ["doctor", "--unknown"]);
+    assert.notEqual(invalid.code, 0);
+    assert.equal(invalid.stdout, "");
+    assert.match(invalid.stderr, /Usage: opencode-capability-profiles doctor \[--project\]/);
   } finally { removeRoot(root); }
 });
